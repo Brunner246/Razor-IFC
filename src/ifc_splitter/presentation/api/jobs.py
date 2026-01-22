@@ -44,7 +44,13 @@ class JobManager:
         # ProcessPoolExecutor because IFC processing is CPU intensive and want to avoid GIL
         # If a worker crashes hard (e.g. segfault in C library), the executor might break.
         # We start with a reasonable number of workers.
-        self.executor = ProcessPoolExecutor()
+        self.executor = self._create_executor()
+
+    def _create_executor(self):
+        mw_env = os.getenv("MAX_WORKERS")
+        max_workers = int(mw_env) if mw_env else None
+        logger.info(f"Starting ProcessPoolExecutor with max_workers={max_workers if max_workers else 'default'}")
+        return ProcessPoolExecutor(max_workers=max_workers)
 
     def create_job(self) -> Job:
         job_id = str(uuid.uuid4())
@@ -124,7 +130,7 @@ class JobManager:
             self.executor.shutdown(wait=False)
         except RuntimeError as e:
             logger.warning(f"Executor shutdown error: {e}")
-        self.executor = ProcessPoolExecutor()
+        self.executor = self._create_executor()
 
     def _on_job_complete(self, job_id: str, future):
         job = self.jobs.get(job_id)

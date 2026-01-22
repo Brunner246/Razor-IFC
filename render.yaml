@@ -7,3 +7,8 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.14.2
+      - key: MAX_WORKERS
+        value: 1
+      # - key: ALLOWED_ORIGINS
+      #   value: 
+
