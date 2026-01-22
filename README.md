@@ -1,34 +1,11 @@
 # IFC File Splitter
 
-A robust tool for filtering and splitting IFC (Industry Foundation Classes) files. It allows you to extract specific elements from an IFC model based on **GUIDs** or **IfcTypes** (e.g., IfcBeam, IfcWall) while maintaining the necessary spatial structure.
+A tool for filtering and splitting IFC (Industry Foundation Classes) files. 
+It allows you to extract specific elements from an IFC model based on **GUIDs** or **IfcTypes** (e.g., IfcBeam, IfcWall) while maintaining the necessary spatial structure.
 
 This project offers two interfaces:
 1.  **CLI (Command Line Interface)** for direct file processing.
 2.  **REST API** for building services or integrating into web apps.
-
-## Installation
-
-1.  **Clone the repository:**
-    ```bash
-    git clone <repository_url>
-    cd ifc_file_splitter
-    ```
-
-2.  **Create a virtual environment:**
-    ```bash
-    python -m venv .venv
-    # Windows
-    .\.venv\Scripts\Activate
-    # Linux/Mac
-    source .venv/bin/activate
-    ```
-
-3.  **Install dependencies:**
-    ```bash
-    pip install . 
-    # Or manually
-    pip install ifcopenshell typer rich fastapi uvicorn python-multipart
-    ```
 
 ---
 
