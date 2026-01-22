@@ -1,4 +1,3 @@
-# Use an official Python runtime as a parent image
 FROM python:3.14-slim
 
 WORKDIR /app
@@ -13,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN pip install --no-cache-dir .
 
-# Create directory for data persistence if not using volumes
+# Create directory for data persistence 
 RUN mkdir -p data/uploads data/processed
 
 EXPOSE 8000
