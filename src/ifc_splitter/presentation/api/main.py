@@ -3,12 +3,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
 import asyncio
+import os
 from rich.logging import RichHandler
 
 from ifc_splitter.presentation.api.routes import router
 from ifc_splitter.presentation.api.dependencies import get_job_manager
 
-# Setup Logging similar to CLI
 logging.basicConfig(
     level="INFO",
     format="%(message)s",
@@ -44,13 +44,17 @@ app = FastAPI(
     title="IFC File Splitter API",
     description="REST API for splitting and filtering IFC files.",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan # https://fastapi.tiangolo.com/advanced/events/#lifespan
 )
 
-# CORS (Allow all for development, restrict for production)
+# https://render.com/articles/fastapi-production-deployment-best-practices
+# TODO: configure allowed origins via env variable
+origins_env = os.getenv("ALLOWED_ORIGINS", "*")
+origins = [origin.strip() for origin in origins_env.split(",")]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

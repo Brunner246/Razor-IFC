@@ -123,8 +123,9 @@ class IfcOpenShellSelector(IfcSelector):
 
 
 class IfcOpenShellPruner(IfcPruner):
+
     def prune_model(self, model: Any, keep_guids: Set[Guid]) -> Any:
-        self._log_verification(model, keep_guids)
+        # self._log_verification(model, keep_guids)
 
         elements = model.by_type("IfcElement")
         logger.info(f"Found {len(elements)} IfcElements in total.")
@@ -139,11 +140,9 @@ class IfcOpenShellPruner(IfcPruner):
         logger.info(f"Filtering model. Keeping {len(keep_guids)} GUIDs.")
         found = 0
         for guid in keep_guids:
-            try:
-                if model.by_guid(guid):
-                    found += 1
-            except:
-                pass
+            if model.by_guid(guid):
+                found += 1
+
         logger.info(f"Verified {found}/{len(keep_guids)} provided GUIDs exist in the source file.")
 
     def _remove_elements(self, model: Any, elements: List[Any]) -> None:
@@ -155,9 +154,8 @@ class IfcOpenShellPruner(IfcPruner):
             if not self._safe_remove(model, element):
                 failed += 1
 
-            if (i + 1) % 200 == 0 or (i + 1) == total:
-                self._log_progress(i + 1, total, failed)
-
+        if failed > 0:
+            logger.warning(f"Failed to remove {failed} elements.")
         logger.info("Finished removing elements.")
 
     @staticmethod

@@ -1,26 +1,27 @@
-import uuid
-import asyncio
 import logging
-import shutil
 import os
+import uuid
+from concurrent.futures import ProcessPoolExecutor
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Dict, Optional
-from dataclasses import dataclass, field
-from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
+from typing import Dict, Optional
 
 from ifc_splitter.application.service import SplitIfcFileUseCase, SplitCommand
 from ifc_splitter.core.ports import FilterCriteria
-from ifc_splitter.infrastructure.ifc_adapter import IfcOpenShellLoader, IfcOpenShellSaver, IfcOpenShellSelector, IfcOpenShellPruner
+from ifc_splitter.infrastructure.ifc_adapter import IfcOpenShellLoader, IfcOpenShellSaver, IfcOpenShellSelector, \
+    IfcOpenShellPruner
 
 logger = logging.getLogger(__name__)
+
 
 class JobStatus(str, Enum):
     PENDING = "pending"
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
+
 
 @dataclass
 class Job:
@@ -57,19 +58,19 @@ class JobManager:
         return job
 
     def get_job(self, job_id: str) -> Optional[Job]:
-        return self.jobs.get(job_id)
-        
+        return self.jobs.get(job_id, None)
+
     def cleanup_old_jobs(self, max_compound_seconds: int = 3600):
         """Removes jobs and files older than the specified duration (default 1 hour)."""
         now = datetime.now()
         threshold = now - timedelta(seconds=max_compound_seconds)
-        
+
         jobs_to_remove = []
-        
+
         for job_id, job in self.jobs.items():
             if job.created_at < threshold:
                 jobs_to_remove.append(job_id)
-                
+
                 # Cleanup Files
                 try:
                     if os.path.exists(job.input_path):
@@ -81,7 +82,7 @@ class JobManager:
 
         for job_id in jobs_to_remove:
             del self.jobs[job_id]
-            
+
         if jobs_to_remove:
             logger.info(f"Cleaned up {len(jobs_to_remove)} old jobs.")
 
@@ -101,7 +102,7 @@ class JobManager:
                 ifc_types,
                 storeys
             )
-            
+
             # Attach a callback to handle competition/failure
             # Note: add_done_callback runs in the thread that waits for the future, usually the main thread or a helper thread.
             future.add_done_callback(lambda f: self._on_job_complete(job_id, f))
@@ -110,13 +111,13 @@ class JobManager:
             logger.error(f"Failed to submit job {job_id}: {e}")
             job.status = JobStatus.FAILED
             job.error = f"System Error: {str(e)}"
-            
+
             # If the pool is broken, we might need to restart it
             if "broken" in str(e).lower() or "terminated" in str(e).lower():
-                 logger.critical("ProcessPoolExecutor is broken. Restarting executor service...")
-                 self._restart_executor()
-                 # Retry submission once
-                 self.submit_processing(job_id, guids, ifc_types, storeys)
+                logger.critical("ProcessPoolExecutor is broken. Restarting executor service...")
+                self._restart_executor()
+                # Retry submission once
+                self.submit_processing(job_id, guids, ifc_types, storeys)
 
     def _restart_executor(self):
         try:
@@ -131,7 +132,7 @@ class JobManager:
             return
 
         try:
-            future.result() # Will raise exception if task failed
+            future.result()  # Will raise exception if task failed
             job.status = JobStatus.COMPLETED
             logger.info(f"Job {job_id} completed successfully.")
         except Exception as e:
@@ -141,15 +142,14 @@ class JobManager:
 
 
 def process_file_task(input_path: str, output_path: str, guids: list[str], ifc_types: list[str], storeys: list[str]):
-
     loader = IfcOpenShellLoader()
     saver = IfcOpenShellSaver()
     selector = IfcOpenShellSelector()
     pruner = IfcOpenShellPruner()
-    
+
     use_case = SplitIfcFileUseCase(loader, saver, selector, pruner)
 
     criteria = FilterCriteria(guids=guids or [], ifc_types=ifc_types or [], storeys=storeys or [])
     command = SplitCommand(source_path=input_path, dest_path=output_path, criteria=criteria)
-    
+
     use_case.execute(command)

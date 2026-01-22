@@ -4,7 +4,6 @@ import os
 
 @lru_cache()
 def get_job_manager() -> JobManager:
-    # Use current working directory / specific folder
     base_dir = os.getcwd()
     upload_dir = os.path.join(base_dir, "data", "uploads")
     output_dir = os.path.join(base_dir, "data", "processed")
