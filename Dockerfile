@@ -18,6 +18,8 @@ RUN mkdir -p data/uploads data/processed
 EXPOSE 8000
 
 ENV PYTHONUNBUFFERED=1
+ENV MAX_WORKERS=2
+ENV JOB_TIMEOUT_SECONDS=300
 
 CMD ["python", "main.py", "serve", "--host", "0.0.0.0", "--port", "8000"]
 

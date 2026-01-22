@@ -1,7 +1,7 @@
 import logging
 import os
 import uuid
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
@@ -41,16 +41,14 @@ class JobManager:
         self.upload_dir.mkdir(parents=True, exist_ok=True)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # ProcessPoolExecutor because IFC processing is CPU intensive and want to avoid GIL
-        # If a worker crashes hard (e.g. segfault in C library), the executor might break.
-        # We start with a reasonable number of workers.
         self.executor = self._create_executor()
+        self.job_timeout = int(os.getenv("JOB_TIMEOUT_SECONDS", "300"))  # 5 min default
 
     def _create_executor(self):
         mw_env = os.getenv("MAX_WORKERS")
-        max_workers = int(mw_env) if mw_env else None
-        logger.info(f"Starting ProcessPoolExecutor with max_workers={max_workers if max_workers else 'default'}")
-        return ProcessPoolExecutor(max_workers=max_workers)
+        max_workers = int(mw_env) if mw_env else 1
+        logger.info(f"Starting ThreadPoolExecutor with max_workers={max_workers}")
+        return ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="ifc_worker")
 
     def create_job(self) -> Job:
         job_id = str(uuid.uuid4())
@@ -98,6 +96,7 @@ class JobManager:
             raise ValueError(f"Job {job_id} not found")
 
         job.status = JobStatus.PROCESSING
+        logger.info(f"Submitting job {job_id} for processing")
 
         try:
             future = self.executor.submit(
@@ -109,53 +108,78 @@ class JobManager:
                 storeys
             )
 
-            # Attach a callback to handle competition/failure
-            # Note: add_done_callback runs in the thread that waits for the future, usually the main thread or a helper thread.
+            # Attach a callback to handle completion/failure
             future.add_done_callback(lambda f: self._on_job_complete(job_id, f))
         except Exception as e:
-            # Check for BrokenProcessPool specifically if needed, or catch all submit errors
-            logger.error(f"Failed to submit job {job_id}: {e}")
+            logger.error(f"Failed to submit job {job_id}: {e}", exc_info=True)
             job.status = JobStatus.FAILED
-            job.error = f"System Error: {str(e)}"
-
-            # If the pool is broken, we might need to restart it
-            if "broken" in str(e).lower() or "terminated" in str(e).lower():
-                logger.critical("ProcessPoolExecutor is broken. Restarting executor service...")
-                self._restart_executor()
-                # Retry submission once
-                self.submit_processing(job_id, guids, ifc_types, storeys)
+            job.error = f"Failed to submit job: {str(e)}"
 
     def _restart_executor(self):
+        """Restart the executor if it becomes unhealthy"""
         try:
-            self.executor.shutdown(wait=False)
-        except RuntimeError as e:
+            self.executor.shutdown(wait=False, cancel_futures=True)
+        except Exception as e:
             logger.warning(f"Executor shutdown error: {e}")
         self.executor = self._create_executor()
+        logger.info("Executor restarted successfully")
 
     def _on_job_complete(self, job_id: str, future):
         job = self.jobs.get(job_id)
         if not job:
+            logger.warning(f"Job {job_id} not found in completion callback")
             return
 
         try:
-            future.result()  # Will raise exception if task failed
+            # Wait for result with timeout
+            future.result(timeout=self.job_timeout)
             job.status = JobStatus.COMPLETED
-            logger.info(f"Job {job_id} completed successfully.")
+            logger.info(f"Job {job_id} completed successfully")
+        except FuturesTimeoutError:
+            job.status = JobStatus.FAILED
+            job.error = f"Job timed out after {self.job_timeout} seconds"
+            logger.error(f"Job {job_id} timed out")
+        except MemoryError as e:
+            job.status = JobStatus.FAILED
+            job.error = "Out of memory - file may be too large for this server"
+            logger.error(f"Job {job_id} failed with MemoryError: {e}")
         except Exception as e:
             job.status = JobStatus.FAILED
             job.error = str(e)
-            logger.error(f"Job {job_id} failed: {e}")
+            logger.error(f"Job {job_id} failed: {e}", exc_info=True)
 
 
 def process_file_task(input_path: str, output_path: str, guids: list[str], ifc_types: list[str], storeys: list[str]):
-    loader = IfcOpenShellLoader()
-    saver = IfcOpenShellSaver()
-    selector = IfcOpenShellSelector()
-    pruner = IfcOpenShellPruner()
+    """
+    Process an IFC file in a worker thread.
+    This runs with better error handling and logging.
+    """
+    import gc
+    
+    try:
+        logger.info(f"Starting processing task for {input_path}")
+        
+        loader = IfcOpenShellLoader()
+        saver = IfcOpenShellSaver()
+        selector = IfcOpenShellSelector()
+        pruner = IfcOpenShellPruner()
 
-    use_case = SplitIfcFileUseCase(loader, saver, selector, pruner)
+        use_case = SplitIfcFileUseCase(loader, saver, selector, pruner)
 
-    criteria = FilterCriteria(guids=guids or [], ifc_types=ifc_types or [], storeys=storeys or [])
-    command = SplitCommand(source_path=input_path, dest_path=output_path, criteria=criteria)
+        criteria = FilterCriteria(guids=guids or [], ifc_types=ifc_types or [], storeys=storeys or [])
+        command = SplitCommand(source_path=input_path, dest_path=output_path, criteria=criteria)
 
-    use_case.execute(command)
+        use_case.execute(command)
+        
+        # Force garbage collection to free memory
+        gc.collect()
+        logger.info(f"Task completed successfully for {input_path}")
+        
+    except MemoryError as e:
+        logger.error(f"Memory error processing {input_path}: {e}")
+        gc.collect()  # Try to free memory
+        raise MemoryError("Out of memory - file may be too large for this server") from e
+    except Exception as e:
+        logger.error(f"Error processing {input_path}: {e}", exc_info=True)
+        gc.collect()  # Try to free memory
+        raise
