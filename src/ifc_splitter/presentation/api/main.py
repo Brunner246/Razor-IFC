@@ -38,8 +38,13 @@ async def lifespan(app: FastAPI):
     logger.info(f"CWD: {os.getcwd()}")
     logger.info(f"/data exists: {os.path.exists('/data')}")
     
-    job_manager = get_job_manager()
-    logger.info(f"JobManager initialized with {len(job_manager.jobs)} existing jobs")
+    try:
+        job_manager = get_job_manager()
+        logger.info(f"JobManager initialized with {len(job_manager.jobs)} existing jobs")
+    except Exception as e:
+        logger.error(f"Failed to initialize JobManager: {e}", exc_info=True)
+        logger.warning("Application will start but job management may not work correctly")
+    
     logger.info("=" * 70)
     
     cleanup_task = asyncio.create_task(run_periodic_cleanup())
