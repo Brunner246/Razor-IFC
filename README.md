@@ -5,7 +5,7 @@ It allows you to extract specific elements from an IFC model based on **GUIDs** 
 
 This project offers two interfaces:
 1.  **CLI (Command Line Interface)** for direct file processing.
-2.  **REST API** for building services or integrating into web apps.
+2.  **REST API** for building services or integrating into web apps with job persistence (survives server restarts).
 
 ---
 
@@ -64,6 +64,29 @@ curl -X "POST" \
   -F "file=@./my_building.ifc" \
   -F "ifc_types=IfcBeam,IfcColumn" \
   -F "guids="
+```
+
+**With Webhook Callback:**
+```bash
+# Get notified when job completes
+curl -X "POST" \
+  "http://localhost:8000/api/v1/process" \
+  -H "accept: application/json" \
+  -H "Content-Type: multipart/form-data" \
+  -F "file=@./my_building.ifc" \
+  -F "ifc_types=IfcWall" \
+  -F "callback_url=https://your-domain.com/webhook/ifc-complete"
+```
+
+The callback URL will receive a POST request when the job completes:
+```json
+{
+  "job_id": "a1b2c3d4-e5f6-7890-1234-56789abcdef0",
+  "status": "completed",
+  "error": null,
+  "output_file": "/path/to/output.ifc",
+  "created_at": "2026-01-22T18:00:00"
+}
 ```
 
 **Response:**
@@ -125,6 +148,7 @@ http -f POST http://localhost:8000/api/v1/process \
 
 ```powershell
 http -f POST http://localhost:8000/api/v1/process file@./testVoid.ifc ifc_types=IfcPanel
+http -f POST https://razor-ifc.onrender.com/api/v1/process file@./Raster.ifc ifc_types="IfcWall"
 ```
 
 ```powershell

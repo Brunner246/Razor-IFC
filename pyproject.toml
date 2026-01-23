@@ -10,5 +10,6 @@ dependencies = [
     "fastapi",
     "uvicorn",
     "python-multipart",
-    "rich"
+    "rich",
+    "httpx"
 ]

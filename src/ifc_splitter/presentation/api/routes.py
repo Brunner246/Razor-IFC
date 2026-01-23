@@ -16,30 +16,25 @@ async def submit_processing_job(
     guids: Optional[str] = Form(None, description="Comma separated list of GUIDs"),
     ifc_types: Optional[str] = Form(None, description="Comma separated list of IfcTypes"),
     storeys: Optional[str] = Form(None, description="Comma separated list of Storey names"),
+    callback_url: Optional[str] = Form(None, description="Webhook URL to notify when job completes"),
     job_manager: JobManager = Depends(get_job_manager)
 ):
     """
     Upload an IFC file and start a filtering job.
     Returns a Job ID to track progress.
     """
-    # Create job entry
-    job = job_manager.create_job()
-    
-    # Save uploaded file
+    job = job_manager.create_job(callback_url=callback_url)
+
     try:
         with open(job.input_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save uploaded file: {str(e)}")
     
-    # Parse parameters
-    # Note: Using Form(str) because UploadFile and structured JSON body don't mix easily in standard multipart/form-data
-    # complicated approaches exists, but comma-separated string is simple and effective.
     parsed_guids = [g.strip() for g in guids.split(",")] if guids else []
     parsed_types = [t.strip() for t in ifc_types.split(",")] if ifc_types else []
     parsed_storeys = [s.strip() for s in storeys.split(",")] if storeys else []
-    
-    # Submit for processing
+
     job_manager.submit_processing(job.id, parsed_guids, parsed_types, parsed_storeys)
     
     return JobSubmitResponse(

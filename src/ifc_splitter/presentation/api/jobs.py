@@ -1,8 +1,10 @@
 import logging
 import os
 import uuid
+import json
+import httpx
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
@@ -23,13 +25,14 @@ class JobStatus(str, Enum):
     FAILED = "failed"
 
 
-@dataclass
+@dataclass(slots=True)
 class Job:
     id: str
     status: JobStatus
     input_path: str
     output_path: str
     error: Optional[str] = None
+    callback_url: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
 
 
@@ -40,25 +43,32 @@ class JobManager:
         self.output_dir = Path(output_dir)
         self.upload_dir.mkdir(parents=True, exist_ok=True)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Metadata persistence
+        self.metadata_file = Path(upload_dir).parent / "jobs_metadata.json"
+        self._load_jobs_metadata()
 
         self.executor = self._create_executor()
         self.job_timeout = int(os.getenv("JOB_TIMEOUT_SECONDS", "300"))  # 5 min default
 
-    def _create_executor(self):
+    @staticmethod
+    def _create_executor():
         mw_env = os.getenv("MAX_WORKERS")
         max_workers = int(mw_env) if mw_env else 1
         logger.info(f"Starting ThreadPoolExecutor with max_workers={max_workers}")
         return ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="ifc_worker")
 
-    def create_job(self) -> Job:
+    def create_job(self, callback_url: Optional[str] = None) -> Job:
         job_id = str(uuid.uuid4())
         job = Job(
             id=job_id,
             status=JobStatus.PENDING,
             input_path=str(self.upload_dir / f"{job_id}.ifc"),
-            output_path=str(self.output_dir / f"{job_id}_filtered.ifc")
+            output_path=str(self.output_dir / f"{job_id}_filtered.ifc"),
+            callback_url=callback_url
         )
         self.jobs[job_id] = job
+        self._save_jobs_metadata()
         return job
 
     def get_job(self, job_id: str) -> Optional[Job]:
@@ -89,13 +99,15 @@ class JobManager:
 
         if jobs_to_remove:
             logger.info(f"Cleaned up {len(jobs_to_remove)} old jobs.")
+            self._save_jobs_metadata()
 
     def submit_processing(self, job_id: str, guids: list[str], ifc_types: list[str], storeys: list[str]):
-        job = self.jobs.get(job_id)
+        job: Job = self.jobs.get(job_id)
         if not job:
             raise ValueError(f"Job {job_id} not found")
 
         job.status = JobStatus.PROCESSING
+        self._save_jobs_metadata()
         logger.info(f"Submitting job {job_id} for processing")
 
         try:
@@ -147,13 +159,99 @@ class JobManager:
             job.status = JobStatus.FAILED
             job.error = str(e)
             logger.error(f"Job {job_id} failed: {e}", exc_info=True)
+        finally:
+            self._save_jobs_metadata()
+            # Notify callback URL
+            if job.callback_url:
+                self._notify_callback(job)
+    
+    def _save_jobs_metadata(self):
+        """Save job metadata to disk for persistence across restarts"""
+        try:
+            jobs_data = []
+            for job in self.jobs.values():
+                job_dict = {
+                    "id": job.id,
+                    "status": job.status.value,
+                    "input_path": job.input_path,
+                    "output_path": job.output_path,
+                    "error": job.error,
+                    "callback_url": job.callback_url,
+                    "created_at": job.created_at.isoformat()
+                }
+                jobs_data.append(job_dict)
+            
+            with open(self.metadata_file, 'w') as f:
+                json.dump(jobs_data, f, indent=2)
+            logger.debug(f"Saved metadata for {len(jobs_data)} jobs")
+        except Exception as e:
+            logger.error(f"Failed to save job metadata: {e}")
+    
+    def _load_jobs_metadata(self):
+        """Load job metadata from disk on startup"""
+        if not self.metadata_file.exists():
+            logger.info("No existing job metadata found")
+            return
+        
+        try:
+            with open(self.metadata_file, 'r') as f:
+                jobs_data = json.load(f)
+            
+            for job_dict in jobs_data:
+                job = Job(
+                    id=job_dict["id"],
+                    status=JobStatus(job_dict["status"]),
+                    input_path=job_dict["input_path"],
+                    output_path=job_dict["output_path"],
+                    error=job_dict.get("error"),
+                    callback_url=job_dict.get("callback_url"),
+                    created_at=datetime.fromisoformat(job_dict["created_at"])
+                )
+                self.jobs[job.id] = job
+            
+            logger.info(f"Loaded {len(self.jobs)} jobs from metadata file")
+        except Exception as e:
+            logger.error(f"Failed to load job metadata: {e}")
+    
+    @staticmethod
+    def _notify_callback(job: Job):
+        """Send HTTP POST notification to callback URL when job completes"""
+        if not job.callback_url:
+            return
+        
+        try:
+            payload = {
+                "job_id": job.id,
+                "status": job.status.value,
+                "error": job.error,
+                "output_file": job.output_path if job.status == JobStatus.COMPLETED else None,
+                "created_at": job.created_at.isoformat()
+            }
+            
+            logger.info(f"Notifying callback URL for job {job.id}: {job.callback_url}")
+            with httpx.Client() as client:
+                response = client.post(
+                    job.callback_url,
+                    json=payload,
+                    timeout=10.0,  # 10 second timeout
+                    headers={"Content-Type": "application/json"}
+                )
+            
+            if 200 <= response.status_code < 300:
+                logger.info(f"Callback notification successful for job {job.id}")
+            else:
+                logger.warning(f"Callback returned status {response.status_code} for job {job.id}")
+                
+        except httpx.TimeoutException:
+            logger.error(f"Callback timeout for job {job.id} at {job.callback_url}")
+        except httpx.RequestError as e:
+            logger.error(f"Failed to notify callback for job {job.id}: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error notifying callback for job {job.id}: {e}")
+
 
 
 def process_file_task(input_path: str, output_path: str, guids: list[str], ifc_types: list[str], storeys: list[str]):
-    """
-    Process an IFC file in a worker thread.
-    This runs with better error handling and logging.
-    """
     import gc
     
     try:

@@ -5,11 +5,13 @@ from ifc_splitter.core.ports import IfcLoader, IfcSaver, IfcSelector, IfcPruner,
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass
 class SplitCommand:
     source_path: str
     dest_path: str
     criteria: FilterCriteria
+
 
 class SplitIfcFileUseCase:
     def __init__(self, loader: IfcLoader, saver: IfcSaver, selector: IfcSelector, pruner: IfcPruner):

@@ -12,3 +12,6 @@ wheels/
 env/
 venv/
 .idea/
+
+# Data and job metadata
+jobs_metadata.json
