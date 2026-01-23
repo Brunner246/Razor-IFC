@@ -31,9 +31,21 @@ async def run_periodic_cleanup():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    logger = logging.getLogger("ifc_splitter")
+    logger.info("=" * 70)
+    logger.info("FastAPI Application Starting...")
+    logger.info(f"Process ID: {os.getpid()}")
+    logger.info(f"CWD: {os.getcwd()}")
+    logger.info(f"/data exists: {os.path.exists('/data')}")
+    
+    job_manager = get_job_manager()
+    logger.info(f"JobManager initialized with {len(job_manager.jobs)} existing jobs")
+    logger.info("=" * 70)
+    
     cleanup_task = asyncio.create_task(run_periodic_cleanup())
     yield
     # Shutdown
+    logger.info("FastAPI Application Shutting Down...")
     cleanup_task.cancel()
     try:
         await cleanup_task

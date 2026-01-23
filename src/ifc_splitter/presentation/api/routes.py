@@ -23,17 +23,27 @@ async def health_check(job_manager: JobManager = Depends(get_job_manager)):
     
     logger.info(f"Health check - Active jobs: {len(job_manager.jobs)}")
     
+    # debugging
+    upload_files = os.listdir(upload_dir) if os.path.exists(upload_dir) else []
+    output_files = os.listdir(output_dir) if os.path.exists(output_dir) else []
+    
+    metadata_size = os.path.getsize(metadata_file) if os.path.exists(metadata_file) else 0
+    
     return {
         "status": "healthy",
         "upload_dir": upload_dir,
         "upload_dir_exists": os.path.exists(upload_dir),
+        "upload_files_count": len(upload_files),
         "output_dir": output_dir,
         "output_dir_exists": os.path.exists(output_dir),
+        "output_files_count": len(output_files),
         "metadata_file": metadata_file,
         "metadata_file_exists": os.path.exists(metadata_file),
+        "metadata_file_size": metadata_size,
         "active_jobs_count": len(job_manager.jobs),
         "active_job_ids": list(job_manager.jobs.keys()),
-        "cwd": os.getcwd()
+        "cwd": os.getcwd(),
+        "persistent_disk_mounted": os.path.exists("/data")
     }
 
 @router.post("/process", response_model=JobSubmitResponse)
