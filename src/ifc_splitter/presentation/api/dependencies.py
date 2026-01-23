@@ -4,8 +4,14 @@ import os
 
 @lru_cache()
 def get_job_manager() -> JobManager:
-    base_dir = os.getcwd()
-    upload_dir = os.path.join(base_dir, "data", "uploads")
-    output_dir = os.path.join(base_dir, "data", "processed")
+    # Use /data for persistent storage on Render (mounted disk)
+    # Falls back to ./data for local development
+    if os.path.exists("/data"):
+        base_dir = "/data"
+    else:
+        base_dir = os.path.join(os.getcwd(), "data")
+    
+    upload_dir = os.path.join(base_dir, "uploads")
+    output_dir = os.path.join(base_dir, "processed")
     
     return JobManager(upload_dir, output_dir)

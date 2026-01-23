@@ -41,12 +41,23 @@ class JobManager:
         self.jobs: Dict[str, Job] = {}
         self.upload_dir = Path(upload_dir)
         self.output_dir = Path(output_dir)
+        
+        logger.info(f"==================================================")
+        logger.info(f"Initializing JobManager:")
+        logger.info(f"  Upload dir: {self.upload_dir.absolute()}")
+        logger.info(f"  Output dir: {self.output_dir.absolute()}")
+        
         self.upload_dir.mkdir(parents=True, exist_ok=True)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
         # Metadata persistence
         self.metadata_file = Path(upload_dir).parent / "jobs_metadata.json"
+        logger.info(f"  Metadata file: {self.metadata_file.absolute()}")
+        logger.info(f"  Metadata exists: {self.metadata_file.exists()}")
+        
         self._load_jobs_metadata()
+        logger.info(f"  Loaded {len(self.jobs)} jobs from metadata")
+        logger.info(f"==================================================")
 
         self.executor = self._create_executor()
         self.job_timeout = int(os.getenv("JOB_TIMEOUT_SECONDS", "300"))  # 5 min default
@@ -181,11 +192,18 @@ class JobManager:
                 }
                 jobs_data.append(job_dict)
             
+            logger.info(f"Saving metadata for {len(jobs_data)} jobs to: {self.metadata_file}")
             with open(self.metadata_file, 'w') as f:
                 json.dump(jobs_data, f, indent=2)
-            logger.debug(f"Saved metadata for {len(jobs_data)} jobs")
+            
+            # Verify file was written
+            if self.metadata_file.exists():
+                size = self.metadata_file.stat().st_size
+                logger.info(f"✓ Metadata saved successfully ({size} bytes)")
+            else:
+                logger.error(f"✗ Metadata file not found after save: {self.metadata_file}")
         except Exception as e:
-            logger.error(f"Failed to save job metadata: {e}")
+            logger.error(f"Failed to save job metadata: {e}", exc_info=True)
     
     def _load_jobs_metadata(self):
         """Load job metadata from disk on startup"""

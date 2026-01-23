@@ -12,8 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN pip install --no-cache-dir .
 
-# Create directory for data persistence 
-RUN mkdir -p data/uploads data/processed
+# directory for data persistence when deployed on Render
+RUN mkdir -p /data/uploads /data/processed
 
 EXPOSE 8000
 

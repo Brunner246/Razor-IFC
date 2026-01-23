@@ -50,6 +50,20 @@ The API is built with FastAPI. Once the server is running (default: `http://loca
 -   **Swagger UI:** [http://localhost:8000/docs](http://localhost:8000/docs)
 -   **ReDoc:** [http://localhost:8000/redoc](http://localhost:8000/redoc)
 
+### Health Check
+
+Check if the API is running and see job persistence status:
+
+```bash
+curl http://localhost:8000/api/v1/health
+```
+
+```bash
+http GET http://localhost:8000/api/v1/health
+```
+
+Returns information about data directories and active jobs.
+
 ### Workflow Example using `curl`
 
 #### 1. Submit a Job
@@ -170,3 +184,5 @@ http GET http://localhost:8000/api/v1/jobs/a1b2c3d4-e5f6-7890-1234-56789abcdef0
 http --download GET http://localhost:8000/api/v1/jobs/a1b2c3d4-e5f6-7890-1234-56789abcdef0/download \
     -o my_filtered_result.ifc
 ```
+
+---

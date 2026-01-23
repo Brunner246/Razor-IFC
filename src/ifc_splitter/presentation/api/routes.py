@@ -10,6 +10,32 @@ from ifc_splitter.presentation.api.jobs import JobManager, JobStatus
 
 router = APIRouter()
 
+@router.get("/health")
+async def health_check(job_manager: JobManager = Depends(get_job_manager)):
+    """Health check endpoint that shows data directory status and job persistence."""
+    import os
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    upload_dir = str(job_manager.upload_dir)
+    output_dir = str(job_manager.output_dir)
+    metadata_file = str(job_manager.metadata_file)
+    
+    logger.info(f"Health check - Active jobs: {len(job_manager.jobs)}")
+    
+    return {
+        "status": "healthy",
+        "upload_dir": upload_dir,
+        "upload_dir_exists": os.path.exists(upload_dir),
+        "output_dir": output_dir,
+        "output_dir_exists": os.path.exists(output_dir),
+        "metadata_file": metadata_file,
+        "metadata_file_exists": os.path.exists(metadata_file),
+        "active_jobs_count": len(job_manager.jobs),
+        "active_job_ids": list(job_manager.jobs.keys()),
+        "cwd": os.getcwd()
+    }
+
 @router.post("/process", response_model=JobSubmitResponse)
 async def submit_processing_job(
     file: UploadFile = File(...),
@@ -23,12 +49,26 @@ async def submit_processing_job(
     Upload an IFC file and start a filtering job.
     Returns a Job ID to track progress.
     """
+    import logging
+    import os
+    logger = logging.getLogger(__name__)
+    
     job = job_manager.create_job(callback_url=callback_url)
+    logger.info(f"Created job {job.id}, will save to: {job.input_path}")
 
     try:
         with open(job.input_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
+        
+        # Verify file was saved
+        if os.path.exists(job.input_path):
+            file_size = os.path.getsize(job.input_path)
+            logger.info(f"✓ File saved successfully: {job.input_path} ({file_size} bytes)")
+        else:
+            logger.error(f"✗ File not found after save attempt: {job.input_path}")
+            raise FileNotFoundError(f"Failed to verify uploaded file at {job.input_path}")
     except Exception as e:
+        logger.error(f"Failed to save uploaded file: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to save uploaded file: {str(e)}")
     
     parsed_guids = [g.strip() for g in guids.split(",")] if guids else []

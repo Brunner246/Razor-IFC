@@ -12,5 +12,10 @@ services:
       - key: JOB_TIMEOUT_SECONDS
         value: 300  # 5 minutes timeout per job
       # - key: ALLOWED_ORIGINS
-      #   value: 
+      #   value:
+    # Persistent disk for job data and uploads
+    disk:
+      name: ifc-data
+      mountPath: /data
+      sizeGB: 1
 
